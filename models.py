@@ -3,6 +3,24 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.rnn import LSTMCell
 
+def get_model(args):
+    if args.model_name == 'mlp':
+        print('Model is an MLP')
+        model = MLP(args)
+    elif args.model_name == 'rnn':
+        print('Model is an LSTM')
+        model = RNN(args)
+    elif args.model_name == 'step_mlp':
+        print('Model is a StepwiseMLP')
+        model = StepwiseMLP(args) 
+    elif args.model_name=='trunc_rnn':
+        print('Model is a truncated RNN')
+        model = TruncatedRNN(args)
+    elif args.model_name == 'mlp_cc':
+        print('Model is a CognitiveController')
+        model = CognitiveController(args) 
+    return model
+
 class CNN(nn.Module):
     def __init__(self, state_dim):
         super(CNN, self).__init__()
@@ -70,6 +88,11 @@ class MLP(nn.Module):
         self.lesion_p = args.lesion_p
         self.measure_grad_norm = args.measure_grad_norm
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
+
+        # For determining how to get average rep for each face
+        self.rep_sort = {'hidden': [True, True]} # [idx1, idx2]
+        self.rep_names = [k for k in self.rep_sort.keys()]
+        self.rep_aves = {}
         
         # Hyperparameters
         self.n_states = 16
@@ -77,16 +100,18 @@ class MLP(nn.Module):
         self.mlp_in_dim = 3*self.state_dim # (f1 + f2 + context)
         self.hidden_dim = 128
         self.output_dim = 2
-        self.analyze = False
+        self.output_seq = False # apply output layer to every time step (RNN)
         
-        # Input embedding (images or one-hot)
+        # Context embedding
+        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
+        nn.init.xavier_normal_(self.ctx_embedding.weight)
+
+        # Face embedding (images or one-hot)
         if self.use_images:
             self.face_embedding = CNN(self.state_dim)
         else:
             self.face_embedding = nn.Embedding(self.n_states, self.state_dim)
-            nn.init.xavier_normal_(self.face_embedding.weight)    
-        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
-        nn.init.xavier_normal_(self.ctx_embedding.weight)
+            nn.init.xavier_normal_(self.face_embedding.weight)
 
         # MLP
         self.hidden = nn.Linear(self.mlp_in_dim, self.hidden_dim)
@@ -94,27 +119,31 @@ class MLP(nn.Module):
         self.out = nn.Linear(self.hidden_dim, self.output_dim)
         
         
-    def forward(self, f1, f2, ctx):
+    def forward(self, ctx, f1, f2):
         # Embed inputs
+        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
         f1_embed  = self.face_embedding(f1) # [batch, state_dim]
         f2_embed  = self.face_embedding(f2) # [batch, state_dim]
-        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
-        
+
         # Scale context for "lesion" experiments
         ctx_embed = torch.tensor(self.ctx_scale) * ctx_embed
         
         # Save embeddings to measure gradients during analysis
         if self.measure_grad_norm:
+            self.ctx_embed = ctx_embed
             self.f1_embed = f1_embed
             self.f2_embed = f2_embed
-            self.ctx_embed = ctx_embed
         
         # MLP
         x = torch.cat([f1_embed, f2_embed, ctx_embed], dim=1) 
         hidd = self.hidden(x)  # [batch, hidden_dim]
         hidd = self.relu(hidd) # [batch, hidden_dim]
         x = self.out(hidd)     # [batch, output_dim]
-        return x, hidd
+
+        # Return representations
+        reps = {'hidden': hidd} # [batch, hidden_dim]
+
+        return x, reps
 
 class RNN(nn.Module):
     def __init__(self, args):
@@ -125,21 +154,29 @@ class RNN(nn.Module):
         self.measure_grad_norm = args.measure_grad_norm
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
 
+        # For determining how to get average rep for each face
+        self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
+                         'hidden_f2': [False, True]} # [idx1, idx2]
+        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_names = [k for k in self.rep_sort.keys()]
+
         # Hyperparameters
         self.n_states = 16
         self.state_dim = 32
         self.hidden_dim = 128
         self.output_dim = 2
-        self.analyze = False
+        self.output_seq = False # apply output layer to every time step (RNN)
         
-        # Input embedding (images or one-hot)
+        # Context embedding
+        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
+        nn.init.xavier_normal_(self.ctx_embedding.weight)
+
+        # Face embedding (images or one-hot)
         if self.use_images:
             self.face_embedding = CNN(self.state_dim)
         else:
             self.face_embedding = nn.Embedding(self.n_states, self.state_dim)
-            nn.init.xavier_normal_(self.face_embedding.weight)    
-        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
-        nn.init.xavier_normal_(self.ctx_embedding.weight)
+            nn.init.xavier_normal_(self.face_embedding.weight)
 
         # LSTM
         self.lstm = nn.LSTM(self.state_dim, self.hidden_dim)
@@ -147,45 +184,52 @@ class RNN(nn.Module):
         # Output
         self.out = nn.Linear(self.hidden_dim, self.output_dim)
 
-    def forward(self, f1, f2, ctx):
+    def forward(self, ctx, f1, f2):
         # Embed inputs
-        f1_embed = self.face_embedding(f1)  # [batch, state_dim]
-        f2_embed = self.face_embedding(f2)  # [batch, state_dim]
-        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
+        ctx_embed = self.ctx_embedding(ctx).unsqueeze(0) # [batch, state_dim]
+        f1_embed = self.face_embedding(f1).unsqueeze(0)  # [batch, state_dim]
+        f2_embed = self.face_embedding(f2).unsqueeze(0)  # [batch, state_dim]
 
         # Scale context for "lesion" experiments
         ctx_embed = torch.tensor(self.ctx_scale) * ctx_embed
 
         # Save embeddings to measure gradients during analysis
         if self.measure_grad_norm:
+            self.ctx_embed = ctx_embed
             self.f1_embed = f1_embed
             self.f2_embed = f2_embed
-            self.ctx_embed = ctx_embed
 
-        # LSTM
+        # Determine order of presentation (context first or last)
         if self.ctx_order == 'last':
-            x = torch.cat([f1_embed.unsqueeze(0), f2_embed.unsqueeze(0),
-                           ctx_embed.unsqueeze(0)], dim=0)
+            x = torch.cat([f1_embed, f2_embed, ctx_embed], dim=0)
+            f1_ind, f2_ind = 0, 1
         elif self.ctx_order == 'first':
-            x = torch.cat([ctx_embed.unsqueeze(0), f1_embed.unsqueeze(0), 
-                           f2_embed.unsqueeze(0)], dim=0)
+            x = torch.cat([ctx_embed, f1_embed, f2_embed], dim=0)
+            f1_ind, f2_ind = 1, 2
+        
+        # LSTM
         lstm_out, (h_n, c_n) = self.lstm(x)
         # lstm_out: [seq_length, batch, hidden_dim]
         # h_n: [1, batch, hidden_dim]
         # c_n: [1, batch, hidden_dim]
 
         # Output layer (linear)
-        if self.analyze: 
+        if self.output_seq: 
             # run output layer on all time steps
-            lstm_out = lstm_out.permute(1,0,2)
-            # lstm_out: [batch, seq_length, hidden_dim]
-            x = self.out(lstm_out)
+            x = self.out(lstm_out.permute(1,0,2))
             # x: [batch, seq_length, output_dim] 
         else:
             # only run output layer on final time step
             x = self.out(h_n.squeeze(0))
             # x: [batch, output_dim] 
-        return x, lstm_out
+        
+        # Return representations
+        hidden_f1 = lstm_out[f1_ind]
+        hidden_f2 = lstm_out[f2_ind]
+        reps = {'hidden_f1': hidden_f1,   # [batch, hidden_dim]
+                'hidden_f2': hidden_f2}   # [batch, hidden_dim]
+
+        return x, reps
 
 class TruncatedRNN(nn.Module):
     def __init__(self, args):
@@ -196,21 +240,29 @@ class TruncatedRNN(nn.Module):
         self.measure_grad_norm = args.measure_grad_norm
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
 
+        # For determining how to get average rep for each face
+        self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
+                         'hidden_f2': [False, True]} # [idx1, idx2]
+        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_names = [k for k in self.rep_sort.keys()]
+
         # Hyperparameters
         self.n_states = 16
         self.state_dim = 32
         self.hidden_dim = 128
         self.output_dim = 2
-        self.analyze = False
+        self.output_seq = False # apply output layer to every time step (RNN)
         
-        # Input embedding (images or one-hot)
+        # Context embedding
+        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
+        nn.init.xavier_normal_(self.ctx_embedding.weight)
+
+        # Face embedding (images or one-hot)
         if self.use_images:
             self.face_embedding = CNN(self.state_dim)
         else:
             self.face_embedding = nn.Embedding(self.n_states, self.state_dim)
             nn.init.xavier_normal_(self.face_embedding.weight)
-        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
-        nn.init.xavier_normal_(self.ctx_embedding.weight)
 
         # Bias context vectors to be far apart
         ctx_bias0 = 1*torch.ones([1, self.state_dim])
@@ -224,26 +276,28 @@ class TruncatedRNN(nn.Module):
         # MLP
         self.out = nn.Linear(self.hidden_dim, self.output_dim)
 
-    def forward(self, f1, f2, ctx):
+    def forward(self, ctx, f1, f2):
         # Embed inputs
+        ctx_embed = self.ctx_embedding(ctx).unsqueeze(0) # [1, batch, state_dim]
         f1_embed  = self.face_embedding(f1).unsqueeze(0) # [1, batch, state_dim]
         f2_embed  = self.face_embedding(f2).unsqueeze(0) # [1, batch, state_dim]
-        ctx_embed = self.ctx_embedding(ctx).unsqueeze(0) # [1, batch, state_dim]
         
         # Scale context for "lesion" experiments
         ctx_embed = torch.tensor(self.ctx_scale) * ctx_embed
 
         # Save embeddings to measure gradients during analysis
         if self.measure_grad_norm:
+            self.ctx_embed = ctx_embed
             self.f1_embed = f1_embed
             self.f2_embed = f2_embed
-            self.ctx_embed = ctx_embed
 
         # Order of presentation (context first or last)
         if self.ctx_order == 'last':
             x = torch.cat([f1_embed, f2_embed, ctx_embed], dim=0)
+            f1_ind, f2_ind = 0, 1
         elif self.ctx_order == 'first':
             x = torch.cat([ctx_embed, f1_embed, f2_embed], dim=0)
+            f1_ind, f2_ind = 1, 2
 
         # Initialize h0 and c0
         bs = f1_embed.size(1) # batch size
@@ -259,27 +313,38 @@ class TruncatedRNN(nn.Module):
         lstm_out = torch.stack(lstm_out, dim=0) # [seq_len, batch, hidden_dim]
 
         # Output layer (linear)
-        if self.analyze:
+        if self.output_seq:
             # run output layer on all time steps
-            lstm_out = lstm_out.permute(1,0,2)
-            # lstm_out: [batch, seq_length, hidden_dim]
-            x = self.out(lstm_out)
+            x = self.out(lstm_out.permute(1,0,2))
             # x: [batch, seq_length, output_dim] 
         else:
             # only run output layer on final time step
             x = self.out(h_n)
             # x: [batch, output_dim] 
-        return x, lstm_out
+
+        # Return representations
+        hidden_f1 = lstm_out[f1_ind]
+        hidden_f2 = lstm_out[f2_ind]
+        reps = {'hidden_f1': hidden_f1,   # [batch, hidden_dim]
+                'hidden_f2': hidden_f2}   # [batch, hidden_dim]
+
+        return x, reps
 
 class StepwiseMLP(nn.Module):
     def __init__(self, args):
         super(StepwiseMLP,self).__init__()
         self.use_images = args.use_images
         self.ctx_order = args.ctx_order
-        self.truncated_mlp = args.truncated_mlp
+        self.trunc_mlp = args.trunc_mlp
         self.ctx_scale = args.ctx_scale
         self.measure_grad_norm = args.measure_grad_norm
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
+
+        # For determining how to get average rep for each face
+        self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
+                         'hidden_f2': [False, True]} # [idx1, idx2]
+        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_names = [k for k in self.rep_sort.keys()]
 
         # Hyperparameters
         self.n_states = 16
@@ -289,16 +354,18 @@ class StepwiseMLP(nn.Module):
         self.mlp_in1_dim = 2*self.state_dim
         self.mlp_in2_dim = self.hidden1_dim+self.state_dim
         self.output_dim = 2
-        self.analyze = False
+        self.output_seq = False # apply output layer to every time step (RNN)
         
-        # Input Embedding (images or one-hot)
+        # Context embedding
+        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
+        nn.init.xavier_normal_(self.ctx_embedding.weight)
+
+        # Face embedding (images or one-hot)
         if self.use_images:
             self.face_embedding = CNN(self.state_dim)
         else:
             self.face_embedding = nn.Embedding(self.n_states, self.state_dim)
             nn.init.xavier_normal_(self.face_embedding.weight)
-        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
-        nn.init.xavier_normal_(self.ctx_embedding.weight)
 
         # MLP
         self.hidden1 = nn.Linear(self.mlp_in1_dim, self.hidden1_dim)
@@ -306,20 +373,20 @@ class StepwiseMLP(nn.Module):
         self.out = nn.Linear(self.hidden2_dim, self.output_dim)
         self.relu = nn.ReLU()
 
-    def forward(self, f1, f2, ctx):
+    def forward(self, ctx, f1, f2):
         # Embed inputs
+        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
         f1_embed  = self.face_embedding(f1) # [batch, state_dim]
         f2_embed  = self.face_embedding(f2) # [batch, state_dim]
-        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
         
         # Scale context for "lesion" experiments
         ctx_embed = torch.tensor(self.ctx_scale) * ctx_embed
 
         # Save embeddings to measure gradients during analysis
         if self.measure_grad_norm:
+            self.ctx_embed = ctx_embed
             self.f1_embed = f1_embed
             self.f2_embed = f2_embed
-            self.ctx_embed = ctx_embed
 
         # Hidden 1 (context + face1)
         x = torch.cat([ctx_embed, f1_embed], dim=1) # [batch, 2*state_dim]
@@ -327,7 +394,7 @@ class StepwiseMLP(nn.Module):
         hidd1 = self.relu(hidd1) # [batch, hidden1_dim]
         
         # Truncate gradients
-        if self.truncated_mlp=='true':
+        if self.trunc_mlp:
             x = torch.cat([hidd1.detach(), f2_embed], dim=1) 
             # x: [batch, state_dim+hidden1_dim]
         else:
@@ -338,8 +405,11 @@ class StepwiseMLP(nn.Module):
         hidd2 = self.hidden2(x) # [batch, hidden2_dim]
         hidd2 = self.relu(hidd2) # [batch, hidden2_dim]
         x = self.out(hidd2)  # [batch, output_dim]
-        hidd = [hidd1, hidd2]
-        return x, hidd
+        
+        # Return representations
+        reps = {'hidden_f1': hidd1,      # [batch, hidden1_dim]
+                'hidden_f2': hidd2}      # [batch, hidden2_dim]
+        return x, reps
 
 class CognitiveController(nn.Module):
     def __init__(self, args):
@@ -347,6 +417,11 @@ class CognitiveController(nn.Module):
         self.use_images = args.use_images
         self.ctx_scale = args.ctx_scale
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
+
+        # For determining how to get average rep for each face
+        self.rep_sort = {'hidden': [True, True]} # [idx1, idx2]
+        self.rep_names = [k for k in self.rep_sort.keys()]
+        self.rep_aves = {}
 
         # Hyperparameters
         self.n_states = 16
@@ -357,18 +432,18 @@ class CognitiveController(nn.Module):
         assert self.hidden_dim % self.n_ctx == 0, msg
         self.h_dim = self.hidden_dim // self.n_ctx # units per hidden group
         self.output_dim = 2
-        self.analyze = False
+        self.output_seq = False # apply output layer to every time step (RNN)
         
+        # Context embedding
+        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
+        nn.init.xavier_normal_(self.ctx_embedding.weight)
 
-        # Input embedding (images or one-hot)
+        # Face embedding (images or one-hot)
         if self.use_images:
             self.face_embedding = CNN(self.state_dim)
         else:
             self.face_embedding = nn.Embedding(self.n_states, self.state_dim)
             nn.init.xavier_normal_(self.face_embedding.weight)
-            
-        self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
-        nn.init.xavier_normal_(self.ctx_embedding.weight)
 
         # MLP
         self.control = nn.Linear(self.state_dim, self.n_ctx)
@@ -377,22 +452,22 @@ class CognitiveController(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
         
-    def forward(self, f1, f2, ctx):
+    def forward(self, ctx, f1, f2):
         batch = f1.shape[0]
 
         # Embed inputs
+        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
         f1_embed  = self.face_embedding(f1) # [batch, state_dim]
         f2_embed  = self.face_embedding(f2) # [batch, state_dim]
-        ctx_embed = self.ctx_embedding(ctx) # [batch, state_dim]
         
         # Scale context for "lesion" experiments
         ctx_embed = torch.tensor(self.ctx_scale) * ctx_embed
 
         # Save embeddings to measure gradients during analysis
         if self.measure_grad_norm:
+            self.ctx_embed = ctx_embed
             self.f1_embed = f1_embed
             self.f2_embed = f2_embed
-            self.ctx_embed = ctx_embed
 
         # Hidden
         x = torch.cat([f1_embed, f2_embed], dim=1) # [batch, 2*state_dim]
@@ -408,4 +483,8 @@ class CognitiveController(nn.Module):
         # Output
         hidden = hidden.view(batch,-1) # [batch, hidden_dim]
         output = self.out(hidden) # [batch, output_dim]
-        return output, hidden
+
+        # Return representations
+        reps = {'hidden': hidden} # [batch, hidden_dim]
+
+        return x, reps

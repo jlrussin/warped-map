@@ -1,18 +1,12 @@
 from itertools import combinations
 import torch 
 import numpy as np
-from numpy.core.fromnumeric import reshape
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS, TSNE
 from scipy.stats import pearsonr, ttest_ind
 import statsmodels.api as sm
 
 from utils import get_congruency
-
-# TODO: split out into one file per analysis function? Can import that way?
-#           -Should do this after fixing everything?
-# TODO: can get rid of analyze_test_seq (just do it in notebook with train results?)
-# TODO: deal with having different numbers of embeddings, different n_states when inner_4x4
 
 def collect_representations(model, analyze_loader, args):
     """
@@ -347,6 +341,8 @@ def regression_exclusion(reps, dists, args):
     cong = np.expand_dims(dists['cong'], axis=1) # [n_pairs, 1]
     idxs1 = dists['idx1']
     idxs2 = dists['idx2']
+    locs1 = dists['loc1']
+    locs2 = dists['loc2']
 
     # Loop through face indexes to exclude one at a time
     results_each = {rep_name:[] for rep_name in rep_names}
@@ -364,156 +360,72 @@ def regression_exclusion(reps, dists, args):
         for rep_name in rep_names:
             rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
             cat_results = ols(x_cat, rep_dists, grid_2d)
-            results_each[rep_name][idx].append(cat_results)
+            results_each[rep_name].append(cat_results)
         
     # Regression after removing both "major" corners - (0,0) and (3,3)
-    # TODO
-    
+    bl, tl, br, tr = args.corners # bot-left, top-left, bot-right, top-right
+    major = [bl, tr]   # locations of "major" corners
+    results_ex_bl_tr = {} # excluding bottom-left and top-right
+    # Get indices for pairs that do not include either of the major corners
     s_idxs = []
-    for i, (idx1, idx2) in enumerate(zip(idxs1, idxs2)):
-        if idx not in [idx1, idx2]:
+    for i, (loc1, loc2) in enumerate(zip(locs1, locs2)):
+        if not any(c in [loc1, loc2] for c in major):
             s_idxs.append(i)
-    x_cat = np.concatenate((grid_dists[s_idxs].reshape((-1,1)), binary_phi[s_idxs].reshape((-1,1))),axis=1)
+    # Perform regression, excluding pairs with either major corner
+    grid_2d_ex = grid_2d[s_idxs]
+    cong_ex = cong[s_idxs]
+    x_cat = np.concatenate([grid_2d_ex, cong_ex], axis=1)
     x_cat = sm.add_constant(x_cat)
-    if args.cortical_model == 'stepwisemlp':
-        for h in range(2):
-            y = hidd_dists[s_idxs,h]
-            _, p_val, t_val, param, bse = run_regression(x_cat,y,grid_dists)
-            p_vals[h].append(p_val)
-            t_vals[h].append(t_val)
-            params[h].append(param)
-            bses[h].append(bse)
-    else:
-        y = hidd_dists[s_idxs]
-        _, p_val, t_val, param, bse = run_regression(x_cat,y,grid_dists)
-        p_vals.append(p_val)
-        t_vals.append(t_val)
-        params.append(param)
-        bses.append(bse)
-    states.append(16)
+    for rep_name in rep_names:
+        rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
+        cat_results = ols(x_cat, rep_dists, grid_2d)
+        results_ex_bl_tr[rep_name] = cat_results
     
-    # regression analysis - after removing (0,0) and (3,3), (3,0) and (0.3)
-    s_idxs = [i for i, sample in enumerate(samples) if ((0 not in sample) & (15 not in sample) &
-                                                        (3 not in sample) & (12 not in sample))] #[66]
-    x_cat = np.concatenate((grid_dists[s_idxs].reshape((-1,1)), binary_phi[s_idxs].reshape((-1,1))),axis=1)
+    # Regression after removing all corners - (0,0), (0,3), (3,0), (3,3)
+    results_ex_corners = {}
+    # Get indices for pairs that do not include either of the major corners
+    s_idxs = []
+    for i, (loc1, loc2) in enumerate(zip(locs1, locs2)):
+        if not any(c in [loc1, loc2] for c in args.corners):
+            s_idxs.append(i)
+    # Perform regression, excluding pairs with either major corner
+    grid_2d_ex = grid_2d[s_idxs]
+    cong_ex = cong[s_idxs]
+    x_cat = np.concatenate([grid_2d_ex, cong_ex], axis=1)
     x_cat = sm.add_constant(x_cat)
-    if args.cortical_model == 'stepwisemlp':
-        for h in range(2):
-            y = hidd_dists[s_idxs,h]  
-            _, p_val, t_val, param, bse = run_regression(x_cat,y,grid_dists)
-            p_vals[h].append(p_val)
-            t_vals[h].append(t_val)
-            params[h].append(param)
-            bses[h].append(bse)
-    else:
-        y = hidd_dists[s_idxs]
-        _, p_val, t_val, param, bse = run_regression(x_cat,y,grid_dists)
-        p_vals.append(p_val)
-        t_vals.append(t_val)
-        params.append(param)
-        bses.append(bse)
-    states.append(17)
-
-    states = np.array(states)
-    p_vals = np.array(p_vals)
-    t_vals = np.array(t_vals)
-    params = np.array(params)
-    bses = np.array(bses)
+    for rep_name in rep_names:
+        rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
+        cat_results = ols(x_cat, rep_dists, grid_2d)
+        results_ex_corners[rep_name] = cat_results
     
-    exc_reg_results = {'excluded_states': states,
-                       'p_vals': p_vals,
-                       't_vals': t_vals,
-                       'params': params,
-                       'bses': bses}                   
+    results = {'excluding_each': results_each,
+               'excluding_bl_tr': results_ex_bl_tr,
+               'excluding_corners': results_ex_corners}                   
+    return results
 
-    return exc_reg_results
+def measure_grad_norms(model):
+    """
+    Measure the L2 norm of the gradient of the loss w.r.t. each embedding
+    This takes place after loss.backward() has been called but before 
+    optimizer.step() has been taken.
+    """
+    grd_ctx = torch.linalg.norm(model.ctx_embed.grad, dim=1)
+    grd_f1 = torch.linalg.norm(model.f1_embed.grad, dim=1)
+    grd_f2 = torch.linalg.norm(model.f2_embed.grad, dim=1)
 
-def analyze_test_seq(args, test_data, cortical_result, dist_results):
-    import sys
-    sys.path.append("..")
-    data = get_loaders(batch_size=32, meta=False,
-                      use_images=True, image_dir='./images/',
-                      n_episodes=None,
-                      N_responses=args.N_responses, N_contexts=args.N_contexts,
-                      cortical_task = args.cortical_task, #ToDo:check why it was set to cortical_task='face_task',
-                      balanced = args.balanced)
-    train_data, train_loader, test_data, test_loader, analyze_data, analyze_loader = data
-
-    idx2loc = {idx:loc for loc, idx in test_data.loc2idx.items()}
-
-    # ctx_order = 'first'
-    # ctx_order_str = 'ctxF'
-    
-    analyze_correct = cortical_result['analyze_correct'] # [n_trials, time_steps]: [384, 3]
-    analyze_correct = np.asarray(analyze_correct).squeeze()
-
-    hidd_t_idx = 1 # at what time step, t = 1 means at the time of face1 
-                                # and t = 2 means at the time of face2
-                                # in axis First (axis is at t=0), it should be t = 1
-    # create groups based on the row or columns
-    # e.g, for context0 (xaxis), first column is group 1, sec col is group 2, and so on.
-    # 4 groups for each axis/context; total 8 groups
-
-    # ToDo: why it is always loc1???
-
-    ctx0_g0=[]
-    ctx0_g1=[]
-    ctx0_g2=[]
-    ctx0_g3=[]
-
-    ctx1_g0=[]
-    ctx1_g1=[]
-    ctx1_g2=[]
-    ctx1_g3=[]
-
-    for i, batch in enumerate(analyze_loader):
-        if args.cortical_task == 'face_task':
-            f1, f2, ctx, y, idx1, idx2 = batch # face1, face2, context, y, index1, index2
-        elif args.cortical_task == 'wine_task':
-            f1, f2, ctx, y1, y2, idx1, idx2 = batch # face1, face2, context, y1, y2, index1, index2        
-            msg = 'analyze_test_seq is only implemented for one response, two contexts'
-            assert args.N_responses == 'one' and args.N_contexts == 2, msg
-
-            if args.N_responses == 'one':
-                y = y1
-        # f1, f2, ax, y, idx1, idx2 = batch
-        acc = analyze_correct[i][hidd_t_idx]
-        ctx = ctx.cpu().numpy().squeeze()
-        idx1 = idx1[0]
-        idx2 = idx2[0]
-        loc1 = idx2loc[idx1]
-        loc2 = idx2loc[idx2]
-        if ctx==0:
-            if loc1[ctx]==0: ctx0_g0.append(acc) # (len(all_perms)/2) / 4 = [48]
-            elif loc1[ctx]==1: ctx0_g1.append(acc)
-            elif loc1[ctx]==2: ctx0_g2.append(acc)
-            elif loc1[ctx]==3: ctx0_g3.append(acc)
-        elif ctx==1:
-            if loc1[ctx]==0: ctx1_g0.append(acc)
-            elif loc1[ctx]==1: ctx1_g1.append(acc)
-            elif loc1[ctx]==2: ctx1_g2.append(acc)
-            elif loc1[ctx]==3: ctx1_g3.append(acc)
-    ctx0_accs = [np.mean(ctx0_g0), np.mean(ctx0_g1), 
-                np.mean(ctx0_g2), np.mean(ctx0_g3) ]
-    ctx1_accs = [np.mean(ctx1_g0), np.mean(ctx1_g1), 
-                np.mean(ctx1_g2), np.mean(ctx1_g3) ]
-         
-    # print('Accuracy at t=%s (face%s) contex 0:' %(hidd_t_idx,hidd_t_idx), ctx0_accs)
-    # print('Accuracy at t=%s (face%s) contex 1:' %(hidd_t_idx,hidd_t_idx), ctx1_accs)
-    return ctx0_accs, ctx1_accs
+    results = {'grd_ctx': grd_ctx.cpu().numpy(),
+               'grd_f1': grd_f1.cpu().numpy(),
+               'grd_f2': grd_f2.cpu().numpy()}
+    return results
 
 def get_analyses(args, final_step):
     if not final_step: # analyses to conduct at every checkpoint
-        if args.no_base_analyses:
-            analysis_dict = {}
-        else:
-            analysis_dict = {'distance_ratio': distance_ratio,
-                             'ttest': ttest,
-                             'correlation': correlation,
-                             'regression': regression,
-                             'regression_with_1D': regression_with_1D,
-                             'regression_exclusion': regression_exclusion,
-                             'analyze_test_seq': analyze_test_seq}
+        analysis_dict = {'distance_ratio': distance_ratio,
+                            'ttest': ttest,
+                            'correlation': correlation,
+                            'regression': regression,
+                            'regression_with_1D': regression_with_1D,
+                            'regression_exclusion': regression_exclusion}
     else: # analyses to conduct only at the final step
         analysis_dict = {'dimensionality_reduction': dimensionality_reduction}
 

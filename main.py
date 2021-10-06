@@ -4,10 +4,9 @@ import pickle
 import random
 import numpy as np 
 
-from dataset import get_loaders
+from data import get_loaders
 from models import get_model
 from train import train
-from analyze import analyze
 
 parser = argparse.ArgumentParser()
 # Setup
@@ -55,16 +54,10 @@ parser.add_argument('--ctx_scale', type=float, default=1.0,
 parser.add_argument('--dim_red_method', default='pca', 
                     choices=['pca', 'mds', 'tsne'], 
                     help='Method to use for dimensionality reduction')
-parser.add_argument('--no_base_analyses', action='store_true',
-                    help='Dont run any base analyses (regression, pca, etc.)')
 parser.add_argument('--measure_grad_norm', action='store_true',
                     help='Measure the norm of the gradient w.r.t the inputs')
 parser.add_argument('--inner_4x4', action='store_true',
                     help='Only analyze inner 4x4 grid')
-parser.add_argument('--sbs_analysis', action='store_true',
-                    help='Whether analyzing step by step')
-parser.add_argument('--sbs_every', type=int, default=1, 
-                    help='Number of steps before analyzing step-by-step')
 
 def main(args):
     # CUDA
@@ -95,6 +88,8 @@ def main(args):
         
         # Train (testing and analysis happens throughout training)
         results_i, analysis_i = train(run_i, model, data, args)
+
+        # Record results
         results.append(results_i)
         analysis.append(analysis_i)
     

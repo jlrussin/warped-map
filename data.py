@@ -8,9 +8,6 @@ from torchvision.transforms import Compose, Grayscale, ToTensor
 
 from utils import get_congruency
 
-# Things to do:
-#   -delete dataset.py
-
 class GridDataGenerator:
     def __init__(self, training_regime='grouped', size=4,  
                  use_images=True, image_dir=None, inner_4x4=False):

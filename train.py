@@ -4,6 +4,7 @@ import numpy as np
 
 from test import test
 from analyze import *
+from utils import log
 
 def train(run_i, model, data, args):
     # Data
@@ -92,10 +93,7 @@ def train(run_i, model, data, args):
                 analyze_acc = test(model, analyze_loader, args)
                 analyze_accs.append(analyze_acc)
                 # Log
-                print("Training accuracy:", train_acc['acc'])
-                print("Testing accuracy:", test_acc['acc'])
-                print("Analyzing accuracy:", analyze_acc['acc'])
-
+                log(train_acc['acc'], test_acc['acc'], analyze_acc['acc'])
                 # Gather representations and analyze
                 analysis = analyze(model, analyze_loader, args, final_step)
                 analyses.append(analysis)

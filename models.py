@@ -85,7 +85,7 @@ class MLP(nn.Module):
     def __init__(self, args):
         super(MLP, self).__init__()
         self.use_images = args.use_images
-        self.lesion_p = args.lesion_p
+        self.ctx_scale = args.ctx_scale
         self.measure_grad_norm = args.measure_grad_norm
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
 
@@ -100,7 +100,6 @@ class MLP(nn.Module):
         self.mlp_in_dim = 3*self.state_dim # (f1 + f2 + context)
         self.hidden_dim = 128
         self.output_dim = 2
-        self.output_seq = False # apply output layer to every time step (RNN)
         
         # Context embedding
         self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
@@ -135,7 +134,7 @@ class MLP(nn.Module):
             self.f2_embed = f2_embed
         
         # MLP
-        x = torch.cat([f1_embed, f2_embed, ctx_embed], dim=1) 
+        x = torch.cat([ctx_embed, f1_embed, f2_embed], dim=1) 
         hidd = self.hidden(x)  # [batch, hidden_dim]
         hidd = self.relu(hidd) # [batch, hidden_dim]
         x = self.out(hidd)     # [batch, output_dim]
@@ -354,7 +353,6 @@ class StepwiseMLP(nn.Module):
         self.mlp_in1_dim = 2*self.state_dim
         self.mlp_in2_dim = self.hidden1_dim+self.state_dim
         self.output_dim = 2
-        self.output_seq = False # apply output layer to every time step (RNN)
         
         # Context embedding
         self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
@@ -432,7 +430,6 @@ class CognitiveController(nn.Module):
         assert self.hidden_dim % self.n_ctx == 0, msg
         self.h_dim = self.hidden_dim // self.n_ctx # units per hidden group
         self.output_dim = 2
-        self.output_seq = False # apply output layer to every time step (RNN)
         
         # Context embedding
         self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)

@@ -3,13 +3,14 @@ import torch
 
 def test(model, loader, args):
     model.eval()
-    model.output_seq = True # return output for each time step
+    if hasattr(model, 'output_seq'):
+        model.output_seq = True # return output for each time step
     with torch.no_grad():
         correct = []        # list of booleans indicating correct answers
         cong_correct = []   # correct for congruent trials only
         incong_correct = [] # correct for incongruent trials only
-        loc1_ctx0 = [[]*args.grid_size] # correct for each level of loc1 in ctx0
-        loc1_ctx1 = [[]*args.grid_size] # correct for each level of loc1 in ctx1
+        loc1_ctx0 = [[]]*args.grid_size # correct for each level of loc1 in ctx0
+        loc1_ctx1 = [[]]*args.grid_size # correct for each level of loc1 in ctx1
         for batch in loader:
             # Data
             ctx, f1, f2,  y, info = batch # context, face1, face2, y, info
@@ -21,14 +22,18 @@ def test(model, loader, args):
             congs = info['cong']
 
             # Run model
-            y_hat, out = model(f1, f2, ctx) 
+            y_hat, out = model(ctx, f1, f2) 
             # y_hat: [batch, output_dim] or [batch, seq_len, output_dim]
 
             # Get predictions with argmax
-            if model.output_seq: # model returns predictions for each time step
-                seq_len = y_hat.shape(1)      
-                y = y.repeat(1, seq_len) # [batch, seq_len]
-                preds = torch.argmax(y_hat, dim=2) # [batch, seq_len]
+            if hasattr(model, 'output_seq'):
+                if model.output_seq: # returns predictions for each time step
+                    seq_len = y_hat.shape[1]      
+                    y = y.repeat(1, seq_len) # [batch, seq_len]
+                    print(y.shape)
+                    preds = torch.argmax(y_hat, dim=2) # [batch, seq_len]
+                else:
+                    preds = torch.argmax(y_hat, dim=1) # [batch]
             else:
                 preds = torch.argmax(y_hat, dim=1) # [batch]
 
@@ -69,5 +74,6 @@ def test(model, loader, args):
                'loc1_ctx1_acc': loc1_ctx1_acc}
 
     model.train()
-    model.output_seq = False # only return output at final time step
+    if hasattr(model, 'output_seq'):
+        model.output_seq = False # return output for each time step
     return results

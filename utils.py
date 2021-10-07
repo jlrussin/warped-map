@@ -5,3 +5,8 @@ def get_congruency(loc1, loc2):
     else:
         cong = 1 if (x1<x2) == (y1<y2) else -1
     return cong
+
+def log(tr_acc, te_acc, an_acc):
+    msg = "Train: {}, Test: {}, Analysis: {}".format(tr_acc, te_acc, an_acc)
+    print(msg)
+    return msg

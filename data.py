@@ -21,7 +21,7 @@ class GridDataGenerator:
         self.locs = [(i,j) for i in range(self.size) for j in range(self.size)]
         self.idxs = [idx for idx in range(len(self.locs))]
         self.loc2idx = {loc:idx for loc, idx in zip(self.locs, self.idxs)}
-        self.idx2loc = {idx:loc for idx, loc in zip(self.locs, self.idxs)}
+        self.idx2loc = {idx:loc for idx, loc in zip(self.idxs, self.locs)}
         self.n_states = len(self.idxs)
 
         # Prepare tensors for each idx
@@ -183,10 +183,9 @@ class GridDataGenerator:
             locb1 = pair[0]
             locb2 = pair[1]
             for sample in within:
-                if sample[2] != 0:
+                ctx, locw1, locw2, y = sample
+                if ctx != 0:
                     continue
-                locw1 = sample[0]
-                locw2 = sample[1]
                 if locb1 == locw1:
                     test_pairs_ctx1.append((locb2, locw2))
                     test_pairs_ctx1.append((locw2, locb2))
@@ -206,10 +205,9 @@ class GridDataGenerator:
             locb1 = pair[0]
             locb2 = pair[1]
             for sample in within:
-                if sample[2] != 1:
+                ctx, locw1, locw2, y = sample
+                if ctx != 1:
                     continue
-                locw1 = sample[0]
-                locw2 = sample[1]
                 if locb1 == locw1:
                     test_pairs_ctx2.append((locb2, locw2))
                     test_pairs_ctx2.append((locw2, locb2))
@@ -328,7 +326,7 @@ class GridDataGenerator:
                         'idx1': self.idxs_map[idx1],
                         'idx2': self.idxs_map[idx2],
                         'cong': cong}
-            info_samples.append([ctx, loc1, loc2, y, info])
+            info_samples.append((ctx, loc1, loc2, y, info))
         return info_samples
     
     def is_inner_4x4(self, loc1, loc2):
@@ -355,7 +353,7 @@ class GridDataset(Dataset):
     def __getitem__(self, i):
         sample = self.samples[i]
         ctx, loc1, loc2, y, info = sample
-        ctx = torch.tensor(ctx).type(torch.long).unsqueeze(0) # [1]
+        ctx = torch.tensor(ctx).unsqueeze(0).type(torch.long) # [1]
         idx1 = self.loc2idx[loc1]
         idx2 = self.loc2idx[loc2]
         f1 = self.idx2tensor[idx1].unsqueeze(0) # [1, 1, 64, 64]
@@ -373,7 +371,7 @@ def grid_collate(samples):
     y_batch = torch.cat([s[3] for s in samples], dim=0)
 
     # Info
-    info_batch = {k:[] for k in samples[0].keys()}
+    info_batch = {k:[] for k in samples[0][4].keys()}
     for s in samples:
         info = s[4]
         for k,v in info.items():

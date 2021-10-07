@@ -18,9 +18,13 @@ def collect_representations(model, analyze_loader, args):
     """
     # Data structures for saving representations
     n_states = args.n_states_a
-    reps = {n: [[]] * n_states for n in model.rep_names} # all trials
-    reps_ctx0 = {n: [[]] * n_states for n in model.rep_names} # context 0 trials
-    reps_ctx1 = {n: [[]] * n_states for n in model.rep_names} # context 1 trials
+    reps = {}
+    reps_ctx0 = {}
+    reps_ctx1 = {}
+    for rep_name in model.rep_names:
+        reps[rep_name] = {idx:[] for idx in range(n_states)}
+        reps_ctx0[rep_name] = {idx:[] for idx in range(n_states)}
+        reps_ctx1[rep_name] = {idx:[] for idx in range(n_states)}
 
     # Collect representations
     idx2tensor = args.idx2tensor_a
@@ -69,17 +73,17 @@ def collect_representations(model, analyze_loader, args):
                             reps_ctx1[rep_name][idx2].append(rep_batch[i])
     
     # Function for averaging representations
-    def average_reps(reps, args):
+    def average_reps(reps):
         ave_reps = {}
         # Average representations over trials
-        for name, rep_list in reps:
-            ave_rep = []
-            for sample_list in rep_list:
+        for name, rep_dict in reps.items():
+            ave_rep = {}
+            for idx, sample_list in rep_dict.items():
                 samples = [s.unsqueeze(0) for s in sample_list]
                 samples = torch.cat(samples, dim=0)
                 ave = torch.mean(samples, dim=0)
-                ave_rep.append(ave)
-            ave_rep = [r.unsqueeze(0) for r in ave_rep]
+                ave_rep[idx] = ave
+            ave_rep = [ave_rep[idx].unsqueeze(0) for idx in range(n_states)]
             ave_rep = torch.cat(ave_rep, dim=0) 
             ave_reps[name] = ave_rep.cpu().numpy() # [n_states, hidden_dim]
         # Average averaged representations (if applicable)
@@ -119,9 +123,10 @@ def compute_distances(reps, args):
     n_states = args.n_states_a
     loc2idx = args.loc2idx_a
     idx2loc = {idx:loc for loc, idx in loc2idx.items()}
-    distance_data = {'rep_dists': {n:[] for n in reps.keys()},
-                     'rep_dists_cong': {n:[] for n in reps.keys()},
-                     'rep_dists_incong': {n:[] for n in reps.keys()},
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
+    distance_data = {'rep_dists': {n:[] for n in rep_names},
+                     'rep_dists_cong': {n:[] for n in rep_names},
+                     'rep_dists_incong': {n:[] for n in rep_names},
                      'rank_diff0': [], # 1D rank differences along axis 0
                      'rank_diff1': [], # 1D rank differences along axis 1
                      'grid_dists': [], # distances in ground truth grid
@@ -164,16 +169,15 @@ def compute_distances(reps, args):
         distance_data['phi'].append(phi)     # continuous measure of congruency
 
         # Compute Euclidean distance between representations
-        for rep_name, rep in reps.items():
-            if len(rep) == n_states: # don't compute distances for _ctx
-                rep1 = rep[idx1]
-                rep2 = rep[idx2]
-                rep_dist = np.linalg.norm(rep1 - rep2)
-                distance_data['rep_dists'][rep_name].append(rep_dist)
-                if cong == 1:
-                    distance_data['rep_dists_cong'][rep_name].append(rep_dist)
-                elif cong == -1:
-                    distance_data['rep_dists_incong'][rep_name].append(rep_dist)
+        for rep_name in rep_names:
+            rep1 = reps[rep_name][idx1]
+            rep2 = reps[rep_name][idx2]
+            rep_dist = np.linalg.norm(rep1 - rep2)
+            distance_data['rep_dists'][rep_name].append(rep_dist)
+            if cong == 1:
+                distance_data['rep_dists_cong'][rep_name].append(rep_dist)
+            elif cong == -1:
+                distance_data['rep_dists_incong'][rep_name].append(rep_dist)
 
     return distance_data
 
@@ -202,8 +206,9 @@ def distance_ratio(reps, dists, args):
     Compute the ratio of average distances between representations of 
     congruent pairs of faces and incongruent pairs of faces (cong / incong)
     """
+    n_states = args.n_states_a
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     results = {}
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
     for rep_name in rep_names:
         rep_dists_cong = dists['rep_dists_cong'][rep_name]
         rep_dists_incong = dists['rep_dists_incong'][rep_name]
@@ -219,8 +224,9 @@ def ttest(reps, dists, args):
     statistically significant difference between the average distance between
     faces in congruent pairs vs. incongruent pairs
     """
+    n_states = args.n_states_a
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     results = {}
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
     for rep_name in rep_names:
         rep_dists_cong = dists['rep_dists_cong'][rep_name]
         rep_dists_incong = dists['rep_dists_incong'][rep_name]
@@ -233,8 +239,9 @@ def correlation(reps, dists, args):
     Correlate distances between representations with distances in the 
     underlying ground-truth grid. 
     """
+    n_states = args.n_states_a
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     results = {}
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
     grid_dists = dists['grid_dists'] # [n_states choose 2]
     for rep_name in rep_names:
         rep_dists = dists['rep_dists'][rep_name] # [n_states choose 2]
@@ -266,7 +273,8 @@ def regression(reps, dists, args):
         rep_dists = beta0 + beta1 * grid_dists + beta2 * congruency
     congruency can either be categorical or continuous ('phi')
     """
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
+    n_states = args.n_states_a
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     grid_2d = np.expand_dims(dists['grid_dists'], axis=1) # [n_pairs, 1]
     # Categorical measure of congruency
     cong = np.expand_dims(dists['cong'], axis=1) # [n_pairs, 1]
@@ -294,7 +302,8 @@ def regression_with_1D(reps, dists, args):
                         + beta3 * 1D_rank_diffs
     congruency can either be categorical or continuous ('phi')
     """
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
+    n_states = args.n_states_a
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     # 1D rank differences along appropriate axis
     grid_1d_0 = np.expand_dims(dists['rank_diff0'], axis=1) # [n_pairs, 1]
     grid_1d_1 = np.expand_dims(dists['rank_diff1'], axis=1) # [n_pairs, 1]
@@ -335,7 +344,7 @@ def regression_exclusion(reps, dists, args):
     faces, or is consistent across all faces. 
     """
     n_states = args.n_states_a 
-    rep_names = [rep_name for rep_name in dists['rep_dists_cong'].keys()]
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
     grid_2d = np.expand_dims(dists['grid_dists'], axis=1) # [n_pairs, 1]
     # Categorical measure of congruency
     cong = np.expand_dims(dists['cong'], axis=1) # [n_pairs, 1]
@@ -358,7 +367,7 @@ def regression_exclusion(reps, dists, args):
         x_cat = np.concatenate([grid_2d_ex, cong_ex], axis=1)
         x_cat = sm.add_constant(x_cat)
         for rep_name in rep_names:
-            rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
+            rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
             cat_results = ols(x_cat, rep_dists, grid_2d)
             results_each[rep_name].append(cat_results)
         
@@ -377,7 +386,7 @@ def regression_exclusion(reps, dists, args):
     x_cat = np.concatenate([grid_2d_ex, cong_ex], axis=1)
     x_cat = sm.add_constant(x_cat)
     for rep_name in rep_names:
-        rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
+        rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
         cat_results = ols(x_cat, rep_dists, grid_2d)
         results_ex_bl_tr[rep_name] = cat_results
     
@@ -394,7 +403,7 @@ def regression_exclusion(reps, dists, args):
     x_cat = np.concatenate([grid_2d_ex, cong_ex], axis=1)
     x_cat = sm.add_constant(x_cat)
     for rep_name in rep_names:
-        rep_dists = np.array(dists['rep_dists'][rep_name][s_idxs])
+        rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
         cat_results = ols(x_cat, rep_dists, grid_2d)
         results_ex_corners[rep_name] = cat_results
     
@@ -490,12 +499,12 @@ def estimate_vis_params(reps, dists, args):
 def get_analyses(args, final_step):
     if not final_step: # analyses to conduct at every checkpoint
         analysis_dict = {'distance_ratio': distance_ratio,
-                            'ttest': ttest,
-                            'correlation': correlation,
-                            'regression': regression,
-                            'regression_with_1D': regression_with_1D,
-                            'regression_exclusion': regression_exclusion,
-                            'estimate_vis_params': estimate_vis_params}
+                         'ttest': ttest,
+                         'correlation': correlation,
+                         'regression': regression,
+                         'regression_with_1D': regression_with_1D,
+                         'regression_exclusion': regression_exclusion,
+                         'estimate_vis_params': estimate_vis_params}
     else: # analyses to conduct only at the final step
         analysis_dict = {'dimensionality_reduction': dimensionality_reduction}
 
@@ -506,7 +515,7 @@ def analyze(model, analyze_loader, args, final_step):
     reps = collect_representations(model, analyze_loader, args)
 
     # Compute distances
-    dists = compute_distances(reps)
+    dists = compute_distances(reps, args)
 
     # Get dictionary with analysis functions
     analysis_dict = get_analyses(args, final_step)

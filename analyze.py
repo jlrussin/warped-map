@@ -1,10 +1,10 @@
-from itertools import combinations
 import torch 
 import numpy as np
+import statsmodels.api as sm
+from itertools import combinations
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS, TSNE
 from scipy.stats import pearsonr, ttest_ind
-import statsmodels.api as sm
 
 from utils import get_congruency
 
@@ -215,7 +215,9 @@ def distance_ratio(reps, dists, args):
         ave_cong_dist = np.mean(rep_dists_cong)
         ave_incong_dist = np.mean(rep_dists_incong)
         ratio = ave_cong_dist / ave_incong_dist
-        results[rep_name] = ratio 
+        results[rep_name] = {'ratio': ratio,
+                             'ave_cong_dist': ave_cong_dist,
+                             'ave_incong_dist': ave_incong_dist}
     return results
 
 def ttest(reps, dists, args):  
@@ -497,7 +499,10 @@ def estimate_vis_params(reps, dists, args):
     return results
 
 def get_analyses(args, final_step):
-    if not final_step: # analyses to conduct at every checkpoint
+    if args.step_by_step:
+        assert args.bs == 1 and args.analyze_every == 1
+        analysis_dict = {'distance_ratio': distance_ratio}
+    elif not final_step: # analyses to conduct at every checkpoint
         analysis_dict = {'distance_ratio': distance_ratio,
                          'ttest': ttest,
                          'correlation': correlation,

@@ -1,5 +1,5 @@
-import numpy as np
 import torch 
+import numpy as np
 
 def test(model, loader, args):
     model.eval()
@@ -28,9 +28,8 @@ def test(model, loader, args):
             # Get predictions with argmax
             if hasattr(model, 'output_seq'):
                 if model.output_seq: # returns predictions for each time step
-                    seq_len = y_hat.shape[1]      
-                    y = y.repeat(1, seq_len) # [batch, seq_len]
-                    print(y.shape)
+                    seq_len = y_hat.shape[1]
+                    y = y.repeat(seq_len, 1).permute(1,0) # [batch, seq_len]
                     preds = torch.argmax(y_hat, dim=2) # [batch, seq_len]
                 else:
                     preds = torch.argmax(y_hat, dim=1) # [batch]

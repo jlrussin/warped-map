@@ -1,6 +1,5 @@
 import torch
 import random
-import numpy as np
 from itertools import permutations 
 from torch.utils.data import Dataset, DataLoader 
 from torchvision.datasets import ImageFolder 
@@ -41,15 +40,26 @@ class GridDataGenerator:
         # Useful variables for doing analyses on inner 4x4 grid
         if self.inner_4x4:
             l = (self.size - 4) // 2 # lower bound of inner 4x4 grid
-            u = self.lower + 3 # upper bound of inner 4x4 grid
-            self.locs_map = {(x1,x2):(x1-l,x2-l) for (x1,x2) in self.locs}
+            u = l + 3 # upper bound of inner 4x4 grid
+            self.locs_map = {} # map old locs to new locs
+            for (x, y) in self.locs:
+                # Subtract lower bound to get new locations
+                new_x = x - l 
+                new_y = y - l
+                if (l <= x <= u) and (l <= y <= u):
+                    self.locs_map[(x,y)] = (new_x, new_y)
+                else:
+                    self.locs_map[(x,y)] = 'outer'
             locs_4x4 = [(x1,x2) for x1 in range(4) for x2 in range(4)]
             self.loc2idx_4x4 = {loc:idx for loc,idx in zip(locs_4x4, range(16))}
-            self.idxs_map = {}
+            self.idxs_map = {} # map old idxs to new idxs
             for idx in self.idxs:
-                loc = self.idx2loc[loc]
+                loc = self.idx2loc[idx]
                 new_loc = self.locs_map[loc]
-                new_idx = self.loc2idx_4x4[new_loc]
+                if new_loc == 'outer':
+                    new_idx = 'outer'
+                else:
+                    new_idx = self.loc2idx_4x4[new_loc]
                 self.idxs_map[idx] = new_idx
             idxs_unmap = {v:k for k,v in self.idxs_map.items()}
             self.idx2tensor_4x4 = {}
@@ -286,22 +296,22 @@ class GridDataGenerator:
         if self.training_regime == 'balanced':
             assert self.size == 4, "balancing implemented for size of 4"
             # Extra wins
-            wins1 = [((0,0),(0,1),1,0,-1)] * 4 + [((0,1),(0,0),1,1,-1)] * 4
-            wins2 = [((0,0),(0,2),1,0,-1)] * 4 + [((0,2),(0,0),1,1,-1)] * 4
-            wins3 = [((0,0),(1,0),0,0,-1)] * 4 + [((1,0),(0,0),0,1,-1)] * 4
-            wins4 = [((0,0),(2,0),0,0,-1)] * 4 + [((2,0),(0,0),0,1,-1)] * 4
+            wins1 = [(1,(0,0),(0,1),0)] * 4 + [(1,(0,1),(0,0),1)] * 4
+            wins2 = [(1,(0,0),(0,2),0)] * 4 + [(1,(0,2),(0,0),1)] * 4
+            wins3 = [(0,(0,0),(1,0),0)] * 4 + [(0,(1,0),(0,0),1)] * 4
+            wins4 = [(0,(0,0),(2,0),0)] * 4 + [(0,(2,0),(0,0),1)] * 4
             wins = wins1 + wins2 + wins3 + wins4
 
             # Extra losses
-            losses1 = [((3,3),(3,2),1,1,-1)] * 4 + [((3,2),(3,3),1,0,-1)] * 4
-            losses2 = [((3,3),(3,1),1,1,-1)] * 4 + [((3,1),(3,3),1,0,-1)] * 4
-            losses3 = [((3,3),(2,3),0,1,-1)] * 4 + [((2,3),(3,3),0,0,-1)] * 4
-            losses4 = [((3,3),(1,3),0,1,-1)] * 4 + [((1,3),(3,3),0,0,-1)] * 4
+            losses1 = [(1,(3,3),(3,2),1)] * 4 + [(1,(3,2),(3,3),0)] * 4
+            losses2 = [(1,(3,3),(3,1),1)] * 4 + [(1,(3,1),(3,3),0)] * 4
+            losses3 = [(0,(3,3),(2,3),1)] * 4 + [(0,(2,3),(3,3),0)] * 4
+            losses4 = [(0,(3,3),(1,3),1)] * 4 + [(0,(1,3),(3,3),0)] * 4
             losses = losses1 + losses2 + losses3 + losses4
 
             # Extras
             extra = wins + losses
-            self.train += extra
+            train += extra
 
         return train, test, analyze
 

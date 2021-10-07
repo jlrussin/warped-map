@@ -1,7 +1,6 @@
-import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.modules.rnn import LSTMCell
+import numpy as np
 
 def get_model(args):
     if args.model_name == 'mlp':
@@ -156,7 +155,7 @@ class RNN(nn.Module):
         # For determining how to get average rep for each face
         self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
                          'hidden_f2': [False, True]} # [idx1, idx2]
-        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_aves = {'average': ['hidden_f1', 'hidden_f2']}
         self.rep_names = [k for k in self.rep_sort.keys()]
 
         # Hyperparameters
@@ -242,7 +241,7 @@ class TruncatedRNN(nn.Module):
         # For determining how to get average rep for each face
         self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
                          'hidden_f2': [False, True]} # [idx1, idx2]
-        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_aves = {'average': ['hidden_f1', 'hidden_f2']}
         self.rep_names = [k for k in self.rep_sort.keys()]
 
         # Hyperparameters
@@ -342,7 +341,7 @@ class StepwiseMLP(nn.Module):
         # For determining how to get average rep for each face
         self.rep_sort = {'hidden_f1': [True, False], # [idx1, idx2]
                          'hidden_f2': [False, True]} # [idx1, idx2]
-        self.rep_aves = {'average': ['hidden_f1, hidden_f2']}
+        self.rep_aves = {'average': ['hidden_f1', 'hidden_f2']}
         self.rep_names = [k for k in self.rep_sort.keys()]
 
         # Hyperparameters
@@ -415,6 +414,7 @@ class CognitiveController(nn.Module):
         self.use_images = args.use_images
         self.ctx_scale = args.ctx_scale
         self.n_ctx = 2 # always 2 contexts ("popularity" and "competence")
+        self.measure_grad_norm = args.measure_grad_norm
 
         # For determining how to get average rep for each face
         self.rep_sort = {'hidden': [True, True]} # [idx1, idx2]
@@ -484,4 +484,4 @@ class CognitiveController(nn.Module):
         # Return representations
         reps = {'hidden': hidden} # [batch, hidden_dim]
 
-        return x, reps
+        return output, reps

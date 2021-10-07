@@ -58,6 +58,8 @@ parser.add_argument('--measure_grad_norm', action='store_true',
                     help='Measure the norm of the gradient w.r.t the inputs')
 parser.add_argument('--inner_4x4', action='store_true',
                     help='Only analyze inner 4x4 grid')
+parser.add_argument('--step_by_step', action='store_true',
+                    help='Measure change in warping at each step')
 
 def main(args):
     # CUDA
@@ -96,7 +98,9 @@ def main(args):
     # Save results
     data = {'results': results,
             'analysis': analysis}
-    with open('../results/'+args.out_file, 'wb') as f:
+    out_path = '../results/'+args.out_file
+    print("Saving results to {}".format(out_path))
+    with open(out_path, 'wb') as f:
         pickle.dump(data, f)
 
 if __name__ == '__main__':

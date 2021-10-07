@@ -1,4 +1,4 @@
-name: CSLS
+name: warp
 channels:
   - pytorch
   - anaconda

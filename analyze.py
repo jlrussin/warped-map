@@ -111,6 +111,7 @@ def collect_representations(model, analyze_loader, args):
         ctx1 = ave_reps_ctx1[rep_name]
         ctx = np.concatenate([ctx0, ctx1], axis=0) # [2*n_states, hidden_dim]
         representations['%s_ctx' % rep_name] = ctx
+    model.train()
     return representations
 
 def compute_distances(reps, args):

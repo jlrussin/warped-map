@@ -408,6 +408,7 @@ def measure_grad_norms(model):
     Measure the L2 norm of the gradient of the loss w.r.t. each embedding
     This takes place after loss.backward() has been called but before 
     optimizer.step() has been taken.
+    This needs to be called in train, so does not appear in analysis_dict
     """
     grd_ctx = torch.linalg.norm(model.ctx_embed.grad, dim=1)
     grd_f1 = torch.linalg.norm(model.f1_embed.grad, dim=1)
@@ -418,6 +419,74 @@ def measure_grad_norms(model):
                'grd_f2': grd_f2.cpu().numpy()}
     return results
 
+def estimate_vis_params(reps, dists, args):
+    """
+    Estimate parameters for visualizing representations over time. 
+    The parameterization works as follows:
+        1. Two groups ("G" and "H") are defined based on locations with the same
+           rank along the "congruent" (bottom-left to top-right) and 
+           "incongruent" (bottom-right to top-left) diagonals
+        2. Distances between adjacent groups are estimated by measuring the 
+           Euclidean distance between the average of all vectors in each group.
+             -alpha: distances between adjacent G ("congruent") groups
+             -beta: distances between adjacent H ("incongruent") groups
+        3. These distances are used to reconstruct the grid in 2 dimensions 
+           (this is done in a jupyter notebook, not in this function)
+    """
+    # Helpful variables
+    n_states = args.n_states_a # total number of faces in grid
+    grid_size = np.sqrt(n_states) # length of one side of grid
+    max_r = grid_size - 1 # maximum rank (starts from 0)
+    loc2idx = args.loc2idx_a # dict mapping (x,y) tuples to indices
+    idx2loc = {idx:loc for loc, idx in loc2idx.items()} # reverse mapping
+    locs = [idx2loc[idx] for idx in range(n_states)] # (x,y) tuples in idx order
+
+    # Construct same-rank groups for "congruent" and "incongruent" diagonals
+    c_rank = np.array([l[0]+l[1] for l in locs]) # ranks ("congruent")
+    i_rank = np.array([max_r+l[0]-l[1] for l in locs]) # ranks ("incongruent")
+    n_ranks = len(set(c_rank)) # number of same-rank groups
+    msg = "G and H groups have different sizes"
+    assert len(set(c_rank)) == len(set(i_rank)), msg
+    G_idxs = [] # same-rank groups for "congruent" diagonal
+    H_idxs = [] # same-rank groups for "incongruent" diagonal
+    for i in range(n_ranks):
+        G_set = [j for j in range(n_states) if c_rank[j] == i] # indices in G[i]
+        H_set = [j for j in range(n_states) if i_rank[j] == i] # indices in H[i]
+        G_idxs.append(G_set)
+        H_idxs.append(H_set)
+    
+    # Estimate alpha and beta parameters from averaged hidden vectors
+    results = {}
+    for rep_name, rep in reps.items():
+        if len(rep) != n_states:
+            continue # don't compute distances for _ctx
+        M = rep # [n_states, hidden_dim]
+        alpha = []
+        beta = []
+        n_params = n_ranks - 1 # 1 parameter for each adjacent pair of groups 
+        for i in range(n_params):
+            # Estimate alpha_{i, i+1}
+            x_bar_i = np.mean(M[G_idxs[i],:], axis=0) # ave vec in G_i
+            x_bar_ip1 = np.mean(M[G_idxs[i+1],:], axis=0) # ave vec in G_{i+1}
+            x_dist = np.linalg.norm(x_bar_i - x_bar_ip1) # distance between aves
+            alpha.append(x_dist)
+            
+            # Estimate beta_{i, i+1}
+            y_bar_i = np.mean(M[H_idxs[i],:], axis=0) # ave vec in H_i
+            y_bar_ip1 = np.mean(M[H_idxs[i+1],:], axis=0) # ave vec in H_{i+1}
+            y_dist = np.linalg.norm(y_bar_i - y_bar_ip1) # distance between aves
+            beta.append(y_dist)
+
+            # Save results
+            results[rep_name] = {'alpha': alpha, 
+                                 'beta': beta,
+                                 'n_states': n_states,
+                                 'locs': locs,
+                                 'idx2loc': idx2loc,
+                                 'G_idxs': G_idxs,
+                                 'H_idxs': H_idxs}
+    return results
+
 def get_analyses(args, final_step):
     if not final_step: # analyses to conduct at every checkpoint
         analysis_dict = {'distance_ratio': distance_ratio,
@@ -425,7 +494,8 @@ def get_analyses(args, final_step):
                             'correlation': correlation,
                             'regression': regression,
                             'regression_with_1D': regression_with_1D,
-                            'regression_exclusion': regression_exclusion}
+                            'regression_exclusion': regression_exclusion,
+                            'estimate_vis_params': estimate_vis_params}
     else: # analyses to conduct only at the final step
         analysis_dict = {'dimensionality_reduction': dimensionality_reduction}
 
@@ -447,5 +517,9 @@ def analyze(model, analyze_loader, args, final_step):
         if args.verbose:
             print("Performing analysis: ", analysis_name)
         analysis_results[analysis_name] = analysis_func(reps, dists, args)
+    
+    # Include distance results for final step
+    if final_step:
+        analysis_results['dists'] = dists
     
     return analysis_results

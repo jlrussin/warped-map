@@ -24,7 +24,7 @@ parser.add_argument('--verbose', action='store_true',
 # Dataset
 parser.add_argument('--use_images', action='store_true',
                     help='Use full face images and CNN for cortical system')
-parser.add_argument('--image_dir', default='images/',
+parser.add_argument('--image_dir', default='images/faces16',
                     help='Path to directory containing face images')
 parser.add_argument('--training_regime', default='grouped', 
                     choices=['grouped', 'ungrouped', 'train_all', 'balanced'],
@@ -34,11 +34,11 @@ parser.add_argument('--grid_size', type=int, default=4,
 parser.add_argument('--ctx_order', type=str, default='first',
                     help='Present context first or last') 
 # Training
-parser.add_argument('--n_runs', type=int, default=2,
+parser.add_argument('--n_runs', type=int, default=20,
                     help='Number of runs for cortical system')
-parser.add_argument('--n_steps', type=int, default=6000,
+parser.add_argument('--n_steps', type=int, default=1000,
                     help='Number of steps for training cortical system')
-parser.add_argument('--bs', type=int, default=1,
+parser.add_argument('--bs', type=int, default=32,
                     help='Batch size')
 parser.add_argument('--lr', type=float, default=0.001,
                     help='Learning rate')

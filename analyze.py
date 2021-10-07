@@ -270,7 +270,7 @@ def regression(reps, dists, args):
     grid_2d = np.expand_dims(dists['grid_dists'], axis=1) # [n_pairs, 1]
     # Categorical measure of congruency
     cong = np.expand_dims(dists['cong'], axis=1) # [n_pairs, 1]
-    x_cat = np.concatenate([grid_2d, cong], axis=1]) # categorical measure
+    x_cat = np.concatenate([grid_2d, cong], axis=1) # categorical measure
     x_cat = sm.add_constant(x_cat) # add intercept
     # Continuous measure of congruency
     phi = np.expand_dims(dists['phi'], axis=1) # [n_pairs, 1]

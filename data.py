@@ -387,7 +387,7 @@ def get_loaders(args):
     grid_size = args.grid_size
     use_images = args.use_images
     image_dir = args.image_dir
-    batch_size = args.batch_size
+    batch_size = args.bs
     training_regime = args.training_regime
     inner_4x4 = args.inner_4x4
 

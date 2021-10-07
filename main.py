@@ -100,7 +100,7 @@ def main(args):
             'analysis': analysis}
     out_path = '../results/'+args.out_file
     print("Saving results to {}".format(out_path))
-    with open(out_path, 'w') as f:
+    with open(out_path, 'wb') as f:
         pickle.dump(data, f)
 
 if __name__ == '__main__':

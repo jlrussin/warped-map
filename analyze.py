@@ -503,7 +503,7 @@ def get_analyses(args, final_step):
     if args.step_by_step:
         assert args.bs == 1 and args.analyze_every == 1
         analysis_dict = {'distance_ratio': distance_ratio}
-    elif not final_step: # analyses to conduct at every checkpoint
+    else: # analyses to conduct at every checkpoint
         analysis_dict = {'distance_ratio': distance_ratio,
                          'ttest': ttest,
                          'correlation': correlation,
@@ -511,9 +511,8 @@ def get_analyses(args, final_step):
                          'regression_with_1D': regression_with_1D,
                          'regression_exclusion': regression_exclusion,
                          'estimate_vis_params': estimate_vis_params}
-    else: # analyses to conduct only at the final step
-        analysis_dict = {'dimensionality_reduction': dimensionality_reduction}
-
+        if final_step: # analyses to conduct only at the final step
+            analysis_dict['dimensionality_reduction'] = dimensionality_reduction
     return analysis_dict
 
 def analyze(model, analyze_loader, args, final_step):

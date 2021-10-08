@@ -60,7 +60,6 @@ def train(run_i, model, data, args):
             loss.backward()
 
             # Record loss and cong
-            train_losses.append(loss.data.item())
             ave_loss.append(loss.data.item())
             cong = info['cong'] # 1: congruent, -1: incongruent, 0: neutral
             congruencies.append(cong)
@@ -76,6 +75,7 @@ def train(run_i, model, data, args):
             # Log
             if step_i % args.print_every == 0:
                 l = np.mean(ave_loss)
+                train_losses.append(l)
                 print("Run: {}, Step: {}, Loss: {}".format(run_i, step_i, l))
                 ave_loss = []
 

@@ -532,7 +532,7 @@ def analyze(model, analyze_loader, args, final_step):
         analysis_results[analysis_name] = analysis_func(reps, dists, args)
     
     # Include distance results for final step
-    #if final_step:
-    #    analysis_results['dists'] = dists
+    # if final_step:
+    #     analysis_results['dists'] = dists
     
     return analysis_results

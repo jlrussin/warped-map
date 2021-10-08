@@ -257,13 +257,12 @@ def ols(x, y, grid_dist):
     Helper function for running ordinary least squares (OLS) regression
     """
     stats_model = sm.OLS(y,x).fit() 
-    y_hat_E = stats_model.params[0] + (stats_model.params[1]*grid_dist)        
+    # y_hat_E = stats_model.params[0] + (stats_model.params[1]*grid_dist)        
     p = stats_model.pvalues
     t = stats_model.tvalues
     beta = stats_model.params
     bse = stats_model.bse
-    results = {'y_hat_E': y_hat_E,
-               'p_value': p,
+    results = {'p_value': p,
                't_statistic': t,
                'betas': beta,
                'bse': bse}
@@ -533,7 +532,7 @@ def analyze(model, analyze_loader, args, final_step):
         analysis_results[analysis_name] = analysis_func(reps, dists, args)
     
     # Include distance results for final step
-    if final_step:
-        analysis_results['dists'] = dists
+    #if final_step:
+    #    analysis_results['dists'] = dists
     
     return analysis_results

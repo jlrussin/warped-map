@@ -19,7 +19,7 @@ python main.py \
 --model_name rnn \
 --bs 1 \
 --print_every 500 \
---test_every 100 \
+--test_every 400 \
 --analyze_every 1 \
 --lr 0.0015 \
 --n_steps 8000

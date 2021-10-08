@@ -18,6 +18,8 @@ python main.py \
 --use_images \
 --model_name rnn \
 --n_steps 2000 \
+--test_every 100 \
+--analyze_every 100 \
 --training_regime ungrouped \
 --image_dir images/faces36 \
 --grid_size 6 \

@@ -29,7 +29,6 @@ def train(run_i, model, data, args):
     analyses = [] # results from all analyses
     congruencies = [] # for tracking congruency of each sample
     grad_norms = [] # for recording norms of gradients w.r.t. embeddings
-    sbs_results = [] # for recording changes in warping on each step
 
     # Training loop
     step_i = 0 # current gradient step
@@ -81,7 +80,7 @@ def train(run_i, model, data, args):
                 ave_loss = []
 
             # Test and analyze
-            final_step = step_i >= args.n_steps
+            final_step = step_i >= args.n_steps - 1
             if step_i % args.analyze_every == 0 or final_step: 
                 # Test on training set
                 train_acc = test(model, train_loader, args)

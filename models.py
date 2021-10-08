@@ -297,16 +297,12 @@ class TruncatedRNN(nn.Module):
             x = torch.cat([ctx_embed, f1_embed, f2_embed], dim=0)
             f1_ind, f2_ind = 1, 2
 
-        # Initialize h0 and c0
-        bs = f1_embed.size(1) # batch size
-        h_n = torch.zeros([bs, self.hidden_dim]) # [batch, hidden_dim]
-        c_n = torch.zeros([bs, self.hidden_dim]) # [batch, hidden_dim]
-
         # Run LSTM, truncating gradients
+        hidden = None # default of LSTMCell is to initialize to 0
         lstm_out = []
         for t in range(len(x)):
-            h_n, c_n = self.lstmcell(x[t], (h_n.detach(), c_n.detach())) 
-            # h_n/c_n: [batch, hidden_dim]
+            h_n, c_n = self.lstmcell(x[t], hidden) 
+            hidden = (h_n.detach(), c_n.detach()) # h_n/c_n: [batch, hidden_dim]
             lstm_out.append(h_n)
         lstm_out = torch.stack(lstm_out, dim=0) # [seq_len, batch, hidden_dim]
 

@@ -18,5 +18,7 @@ python main.py \
 --use_images \
 --model_name mlp \
 --bs 1 \
+--print_every 500 \
+--test_every 100 \
 --analyze_every 1 \
 --n_steps 8000 

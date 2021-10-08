@@ -16,6 +16,8 @@ parser.add_argument('--seed', type=int, default=0,
                     help='Random seed')
 parser.add_argument('--print_every', type=int, default=200,
                     help='Number of steps before printing average loss')
+parser.add_argument('--test_every', type=int, default=50,
+                    help='Number of steps before testing')
 parser.add_argument('--analyze_every', type=int, default=50,
                     help='Number of steps before running analyses')
 parser.add_argument('--out_file', default='results.P')

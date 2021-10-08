@@ -80,8 +80,8 @@ def train(run_i, model, data, args):
                 ave_loss = []
 
             # Test
-            final_step = step_i >= args.n_steps - 1
-            if step_i % args.test_every == 0 or final_step: 
+            final_step = step_i >= (args.n_steps - 1)
+            if (step_i % args.test_every == 0) or final_step: 
                 # Test on training set
                 train_acc = test(model, train_loader, args)
                 train_accs.append(train_acc)
@@ -95,7 +95,7 @@ def train(run_i, model, data, args):
                 log(train_acc['acc'], test_acc['acc'], analyze_acc['acc'])
             
             # Analyze
-            if step_i % args.analyze_every == 0 or final_step:
+            if (step_i % args.analyze_every == 0) or final_step:
                 # Gather representations and analyze
                 analysis = analyze(model, analyze_loader, args, final_step)
                 analyses.append(analysis)
@@ -104,7 +104,7 @@ def train(run_i, model, data, args):
             if final_step:
                 done = True 
                 break
-            step_i+= 1
+            step_i += 1
 
     results = {'train_losses': train_losses,
                'train_accs': train_accs,

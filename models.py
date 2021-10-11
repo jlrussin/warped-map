@@ -163,7 +163,6 @@ class RNN(nn.Module):
         self.state_dim = 32
         self.hidden_dim = 128
         self.output_dim = 2
-        self.output_seq = False # apply output layer to every time step (RNN)
         
         # Context embedding
         self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
@@ -212,14 +211,8 @@ class RNN(nn.Module):
         # c_n: [1, batch, hidden_dim]
 
         # Output layer (linear)
-        if self.output_seq: 
-            # run output layer on all time steps
-            x = self.out(lstm_out.permute(1,0,2))
-            # x: [batch, seq_length, output_dim] 
-        else:
-            # only run output layer on final time step
-            x = self.out(h_n.squeeze(0))
-            # x: [batch, output_dim] 
+        x = self.out(h_n.squeeze(0))
+        # x: [batch, output_dim] 
         
         # Return representations
         hidden_f1 = lstm_out[f1_ind]
@@ -249,7 +242,6 @@ class TruncatedRNN(nn.Module):
         self.state_dim = 32
         self.hidden_dim = 128
         self.output_dim = 2
-        self.output_seq = False # apply output layer to every time step (RNN)
         
         # Context embedding
         self.ctx_embedding = nn.Embedding(self.n_ctx, self.state_dim)
@@ -307,14 +299,8 @@ class TruncatedRNN(nn.Module):
         lstm_out = torch.stack(lstm_out, dim=0) # [seq_len, batch, hidden_dim]
 
         # Output layer (linear)
-        if self.output_seq:
-            # run output layer on all time steps
-            x = self.out(lstm_out.permute(1,0,2))
-            # x: [batch, seq_length, output_dim] 
-        else:
-            # only run output layer on final time step
-            x = self.out(h_n)
-            # x: [batch, output_dim] 
+        x = self.out(h_n)
+        # x: [batch, output_dim] 
 
         # Return representations
         hidden_f1 = lstm_out[f1_ind]

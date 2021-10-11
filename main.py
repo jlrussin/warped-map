@@ -14,7 +14,7 @@ parser.add_argument('--use_cuda', action='store_true',
                     help='Use GPU, if available')
 parser.add_argument('--seed', type=int, default=0,
                     help='Random seed')
-parser.add_argument('--print_every', type=int, default=200,
+parser.add_argument('--print_every', type=int, default=10,
                     help='Number of steps before printing average loss')
 parser.add_argument('--test_every', type=int, default=50,
                     help='Number of steps before testing')

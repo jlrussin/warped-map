@@ -3,8 +3,6 @@ import numpy as np
 
 def test(model, loader, args):
     model.eval()
-    if hasattr(model, 'output_seq'):
-        model.output_seq = True # return output for each time step
     with torch.no_grad():
         correct = []        # list of booleans indicating correct answers
         cong_correct = []   # correct for congruent trials only
@@ -26,15 +24,7 @@ def test(model, loader, args):
             # y_hat: [batch, output_dim] or [batch, seq_len, output_dim]
 
             # Get predictions with argmax
-            if hasattr(model, 'output_seq'):
-                if model.output_seq: # returns predictions for each time step
-                    seq_len = y_hat.shape[1]
-                    y = y.repeat(seq_len, 1).permute(1,0) # [batch, seq_len]
-                    preds = torch.argmax(y_hat, dim=2) # [batch, seq_len]
-                else:
-                    preds = torch.argmax(y_hat, dim=1) # [batch]
-            else:
-                preds = torch.argmax(y_hat, dim=1) # [batch]
+            preds = torch.argmax(y_hat, dim=1) # [batch]
 
             # Compute whether predictions are correct
             c = (preds == y) # [batch] or [batch, seq_len]
@@ -73,6 +63,4 @@ def test(model, loader, args):
                'loc1_ctx1_acc': loc1_ctx1_acc}
 
     model.train()
-    if hasattr(model, 'output_seq'):
-        model.output_seq = False # return output for each time step
     return results

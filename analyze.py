@@ -124,7 +124,7 @@ def compute_distances(reps, args):
     n_states = args.n_states_a
     loc2idx = args.loc2idx_a
     idx2loc = {idx:loc for loc, idx in loc2idx.items()}
-    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
+    rep_names = [name for name, r in reps.items() if len(r) == n_states]
     distance_data = {'rep_dists': {n:[] for n in rep_names},
                      'rep_dists_cong': {n:[] for n in rep_names},
                      'rep_dists_incong': {n:[] for n in rep_names},
@@ -139,6 +139,13 @@ def compute_distances(reps, args):
                      'theta': [], # angle between loc1 and loc2
                      'phi': []}   # sin(2*theta) (continuous measure of cong)
     idxs = [idx for idx in range(n_states)]
+
+    def dist2d(loc1,loc2):
+        (x1, y1) = loc1
+        (x2, y2) = loc2
+        dist = np.sqrt((x1-x2)**2 + (y1-y2)**2)
+        return dist
+
     # Loop through every pair of faces
     for idx1, idx2 in combinations(idxs, 2):
         # Record basic info
@@ -160,7 +167,7 @@ def compute_distances(reps, args):
         distance_data['rank_diff1'].append(rank_diff1)
 
         # Compute Euclidean distance in ground truth grid
-        grid_dist = np.sqrt((x1-x2)**2 + (y1-y2)**2)
+        grid_dist = dist2d(loc1, loc2)
         distance_data['grid_dists'].append(grid_dist)
 
         # Compute the angle between the two locations
@@ -179,6 +186,82 @@ def compute_distances(reps, args):
                 distance_data['rep_dists_cong'][rep_name].append(rep_dist)
             elif cong == -1:
                 distance_data['rep_dists_incong'][rep_name].append(rep_dist)
+    
+    # Compute distanes for Representational Similarity Analysis
+    def get_h1_loc(idx, ctx):
+        # Hypothesis 1: reps capture ground-truth 2D structure
+        h1_loc_x = idx2loc[idx][0] - (args.grid_size-1)/2 # center at (0,0)
+        h1_loc_y = idx2loc[idx][1] - (args.grid_size-1)/2 # center at (0,0)
+        h1_loc = (h1_loc_x, h1_loc_y)
+        return h1_loc
+
+    def get_h2_loc(idx, ctx):
+        # Hypothesis 2: reps from each context are orthogonal and 1D
+        h1_loc = get_h1_loc(idx, ctx)
+        h2_loc = [0,0]
+        h2_loc[ctx] = h1_loc[ctx]
+        return h2_loc
+
+    def get_h3_loc(idx, ctx):
+        # Hypothesis 3: reps are warped along congruent diagonal
+        loc = idx2loc[idx]
+        # Sum original ranks to get overall rank
+        summed = loc[0] + loc[1]
+        centered = summed - (args.grid_size - 1)
+        new_loc = np.array([centered, 0])
+
+        # Rotate 45 degrees 
+        theta = np.pi/4
+        rotate_mat = np.array([[np.cos(theta), -np.sin(theta)],
+                               [np.sin(theta), np.cos(theta)]])
+        rotated = np.matmul(rotate_mat, new_loc)
+        h3_loc = tuple(rotated)
+        return h3_loc
+
+    h1_dists = []
+    h2_dists = []
+    h3_dists = []
+    rep_dists = {}
+    idx_ctx = [(idx,ctx) for idx in idxs for ctx in range(2)]
+    for (idx1,ctx1), (idx2,ctx2) in combinations(idx_ctx,2):
+        # Hypothesis 1
+        h1_loc1 = get_h1_loc(loc1, ctx1)
+        h1_loc2 = get_h1_loc(loc2, ctx2)
+        h1_dist = dist2d(h1_loc1, h1_loc2)
+        h1_dists.append(h1_dist)
+
+        # Hypothesis 2
+        h2_loc1 = get_h2_loc(loc1, ctx1)
+        h2_loc2 = get_h2_loc(loc2, ctx2)
+        h2_dist = dist2d(h2_loc1, h2_loc2)
+        h2_dists.append(h2_dist)
+
+        # Hypothesis 3
+        h3_loc1 = get_h3_loc(loc1, ctx1)
+        h3_loc2 = get_h3_loc(loc2, ctx2)
+        h3_dist = dist2d(h3_loc1, h3_loc2)
+        h3_dists.append(h3_dist)
+
+        # Euclidean distances between representations
+        for rep_name in rep_names:
+            ctx1_name = f"{rep_name}_ctx{ctx1}"
+            ctx2_name = f"{rep_name}_ctx{ctx2}"
+            if ctx1_name not in reps or ctx2_name not in reps:
+                continue
+            if rep_name not in rep_dists:
+                rep_dists[rep_name] = []
+            rep1 = reps[ctx1_name][idx1]
+            rep2 = reps[ctx2_name][idx2]
+            rep_dist = np.linalg.norm(rep1 - rep2)
+            rep_dists[rep_name].append(rep_dist)
+        
+
+    rsa_distance_data = {'h1_dists': h1_dists,   # [2*n_states choose 2]
+                         'h2_dists': h2_dists,   # [2*n_states choose 2]
+                         'h3_dists': h3_dists,   # [2*n_states choose 2]
+                         'rep_dists': rep_dists} # [2*n_states choose 2]
+
+    distance_data['rsa'] = rsa_distance_data
 
     return distance_data
 
@@ -252,7 +335,7 @@ def correlation(reps, dists, args):
         results[rep_name] = {'r_statistic': r, 'p_value': p}
     return results
 
-def ols(x, y, grid_dist):
+def ols(x, y):
     """
     Helper function for running ordinary least squares (OLS) regression
     """
@@ -290,8 +373,8 @@ def regression(reps, dists, args):
     results = {}
     for rep_name in rep_names:
         rep_dists = np.array(dists['rep_dists'][rep_name]) # [n_pairs]
-        cat_results = ols(x_cat, rep_dists, grid_2d)
-        con_results = ols(x_con, rep_dists, grid_2d)
+        cat_results = ols(x_cat, rep_dists)
+        con_results = ols(x_con, rep_dists)
         results[rep_name] = {'categorical_regression': cat_results,
                              'continuous_regression': con_results}
     return results
@@ -332,8 +415,8 @@ def regression_with_1D(reps, dists, args):
             dists0 = np.array(dists['rep_dists'][name0]) # [n_pairs]
             dists1 = np.array(dists['rep_dists'][name1]) # [n_pairs]
             rep_dists = np.concatenate([dists0, dists1], axis=0) # [2*n_pairs]
-            cat_results = ols(x_cat, rep_dists, grid_2d)
-            con_results = ols(x_con, rep_dists, grid_2d)
+            cat_results = ols(x_cat, rep_dists)
+            con_results = ols(x_con, rep_dists)
             results[rep_name] = {'categorical_regression': cat_results,
                                 'continuous_regression': con_results}
     return results
@@ -370,7 +453,7 @@ def regression_exclusion(reps, dists, args):
         x_cat = sm.add_constant(x_cat)
         for rep_name in rep_names:
             rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
-            cat_results = ols(x_cat, rep_dists, grid_2d)
+            cat_results = ols(x_cat, rep_dists)
             results_each[rep_name].append(cat_results)
         
     # Regression after removing both "major" corners - (0,0) and (3,3)
@@ -389,7 +472,7 @@ def regression_exclusion(reps, dists, args):
     x_cat = sm.add_constant(x_cat)
     for rep_name in rep_names:
         rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
-        cat_results = ols(x_cat, rep_dists, grid_2d)
+        cat_results = ols(x_cat, rep_dists)
         results_ex_bl_tr[rep_name] = cat_results
     
     # Regression after removing all corners - (0,0), (0,3), (3,0), (3,3)
@@ -406,12 +489,28 @@ def regression_exclusion(reps, dists, args):
     x_cat = sm.add_constant(x_cat)
     for rep_name in rep_names:
         rep_dists = np.array(dists['rep_dists'][rep_name])[s_idxs]
-        cat_results = ols(x_cat, rep_dists, grid_2d)
+        cat_results = ols(x_cat, rep_dists)
         results_ex_corners[rep_name] = cat_results
     
     results = {'excluding_each': results_each,
                'excluding_bl_tr': results_ex_bl_tr,
                'excluding_corners': results_ex_corners}                   
+    return results
+
+def rsa(reps, dists, args):
+    h1_dists = np.expand_dims(np.array(dists['rsa']['h1_dists']), axis=1)
+    h2_dists = np.expand_dims(np.array(dists['rsa']['h2_dists']), axis=1)
+    h3_dists = np.expand_dims(np.array(dists['rsa']['h3_dists']), axis=1)
+    rep_dists = np.array(dists['rsa']['rep_dists'])
+
+    x = np.concatenate([h1_dists, h2_dists, h3_dists], axis=1)
+    x = sm.add_constant(x)
+
+    results = {}
+    for rep_name, r_dists in rep_dists.items():
+        y = np.array(r_dists)
+        results[rep_name] = ols(x, y)
+    
     return results
 
 def measure_grad_norms(model):
@@ -589,6 +688,7 @@ def get_analyses(args, final_step):
                          'regression': regression,
                          'regression_with_1D': regression_with_1D,
                          'regression_exclusion': regression_exclusion,
+                         'rsa': rsa,
                          'get_diag_vis_params': get_diag_vis_params,
                          'get_orth_vis_params': get_orth_vis_params}
         if final_step: # analyses to conduct only at the final step

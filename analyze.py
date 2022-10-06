@@ -221,26 +221,30 @@ def compute_distances(reps, args):
     h1_dists = []
     h2_dists = []
     h3_dists = []
+    same_ctxs = []
     rep_dists = {}
     idx_ctx = [(idx,ctx) for idx in idxs for ctx in range(2)]
     for (idx1,ctx1), (idx2,ctx2) in combinations(idx_ctx,2):
         # Hypothesis 1
-        h1_loc1 = get_h1_loc(loc1, ctx1)
-        h1_loc2 = get_h1_loc(loc2, ctx2)
+        h1_loc1 = get_h1_loc(idx1, ctx1)
+        h1_loc2 = get_h1_loc(idx2, ctx2)
         h1_dist = dist2d(h1_loc1, h1_loc2)
         h1_dists.append(h1_dist)
 
         # Hypothesis 2
-        h2_loc1 = get_h2_loc(loc1, ctx1)
-        h2_loc2 = get_h2_loc(loc2, ctx2)
+        h2_loc1 = get_h2_loc(idx1, ctx1)
+        h2_loc2 = get_h2_loc(idx2, ctx2)
         h2_dist = dist2d(h2_loc1, h2_loc2)
         h2_dists.append(h2_dist)
 
         # Hypothesis 3
-        h3_loc1 = get_h3_loc(loc1, ctx1)
-        h3_loc2 = get_h3_loc(loc2, ctx2)
+        h3_loc1 = get_h3_loc(idx1, ctx1)
+        h3_loc2 = get_h3_loc(idx2, ctx2)
         h3_dist = dist2d(h3_loc1, h3_loc2)
         h3_dists.append(h3_dist)
+
+        # Same context (1 for same, 0 for different)
+        same_ctxs.append(int(ctx1 != ctx2))
 
         # Euclidean distances between representations
         for rep_name in rep_names:
@@ -259,6 +263,7 @@ def compute_distances(reps, args):
     rsa_distance_data = {'h1_dists': h1_dists,   # [2*n_states choose 2]
                          'h2_dists': h2_dists,   # [2*n_states choose 2]
                          'h3_dists': h3_dists,   # [2*n_states choose 2]
+                         'same_ctxs': same_ctxs, # [2*n_states choose 2]
                          'rep_dists': rep_dists} # [2*n_states choose 2]
 
     distance_data['rsa'] = rsa_distance_data
@@ -500,10 +505,11 @@ def regression_exclusion(reps, dists, args):
 def rsa(reps, dists, args):
     h1_dists = np.expand_dims(np.array(dists['rsa']['h1_dists']), axis=1)
     h2_dists = np.expand_dims(np.array(dists['rsa']['h2_dists']), axis=1)
-    h3_dists = np.expand_dims(np.array(dists['rsa']['h3_dists']), axis=1)
-    rep_dists = np.array(dists['rsa']['rep_dists'])
+    same_ctxs = np.expand_dims(np.array(dists['rsa']['same_ctxs']), axis=1)
+    rep_dists = dists['rsa']['rep_dists']
 
-    x = np.concatenate([h1_dists, h2_dists, h3_dists], axis=1)
+    x = np.concatenate([h1_dists, h2_dists, same_ctxs], axis=1)
+    x = x - np.mean(x, axis=0)
     x = sm.add_constant(x)
 
     results = {}

@@ -502,6 +502,84 @@ def regression_exclusion(reps, dists, args):
                'excluding_corners': results_ex_corners}                   
     return results
 
+def ttest_exclusion(reps, dists, args):
+    """
+    Perform an independent-samples t-test to determine if there is a 
+    statistically significant difference after excluding all pairs 
+    including one face at a time. 
+    """
+    n_states = args.n_states_a 
+    rep_names = [rep_name for rep_name, r in reps.items() if len(r) == n_states]
+    grid_2d = np.expand_dims(dists['grid_dists'], axis=1) # [n_pairs, 1]
+    # Categorical measure of congruency
+    cong = np.expand_dims(dists['cong'], axis=1) # [n_pairs, 1]
+    idxs1 = dists['idx1']
+    idxs2 = dists['idx2']
+    locs1 = dists['loc1']
+    locs2 = dists['loc2']
+    results = {}
+    # Loop through face indexes to exclude one at a time
+    results_each = {rep_name:[] for rep_name in rep_names}
+    for idx in range(n_states):
+        # Get indices for pairs that do not include idx
+        s_idxs_cong, s_idxs_incong = [], []
+        for i, (idx1, idx2) in enumerate(zip(idxs1, idxs2)):
+            if idx not in [idx1, idx2]:
+                if cong[i] == 1:
+                    s_idxs_cong.append(i)
+                elif cong[i] == -1:
+                    s_idxs_incong.append(i)
+        for rep_name in rep_names:
+            rep_dists_cong = np.array(dists['rep_dists'][rep_name])[s_idxs_cong]
+            rep_dists_incong = np.array(dists['rep_dists'][rep_name])[s_idxs_incong]
+            t, p = ttest_ind(rep_dists_cong, rep_dists_incong)
+            # results_each[rep_name] = {'t_statistic': t, 'p_value': p}
+            results_each[rep_name].append([t,p])
+        
+    # ttest after removing both "major" corners - (0,0) and (3,3)
+    bl, tl, br, tr = args.corners # bot-left, top-left, bot-right, top-right
+    major = [bl, tr]   # locations of "major" corners
+    results_ex_bl_tr = {} # excluding bottom-left and top-right
+    # Get indices for pairs that do not include either of the major corners
+    s_idxs_cong, s_idxs_incong = [], []
+    for i, (loc1, loc2) in enumerate(zip(locs1, locs2)):
+        if not any(c in [loc1, loc2] for c in major):
+            if cong[i] == 1:
+                s_idxs_cong.append(i)
+            elif cong[i] == -1:
+                s_idxs_incong.append(i)
+
+    # Perform ttest, excluding pairs with either major corner
+    for rep_name in rep_names:
+        rep_dists_cong = np.array(dists['rep_dists'][rep_name])[s_idxs_cong]
+        rep_dists_incong = np.array(dists['rep_dists'][rep_name])[s_idxs_incong]
+        t, p = ttest_ind(rep_dists_cong, rep_dists_incong)
+        # results_each[rep_name] = {'t_statistic': t, 'p_value': p}
+        results_ex_bl_tr[rep_name] = [t,p]
+
+    # ttest after removing all corners - (0,0), (0,3), (3,0), (3,3)
+    results_ex_corners = {}
+    # Get indices for pairs that do not include either of the major corners
+    s_idxs_cong, s_idxs_incong = [], []
+    for i, (loc1, loc2) in enumerate(zip(locs1, locs2)):
+        if not any(c in [loc1, loc2] for c in args.corners):
+            if cong[i] == 1:
+                s_idxs_cong.append(i)
+            elif cong[i] == -1:
+                s_idxs_incong.append(i)
+    # Perform ttest, excluding pairs with either major corner
+    for rep_name in rep_names:
+        rep_dists_cong = np.array(dists['rep_dists'][rep_name])[s_idxs_cong]
+        rep_dists_incong = np.array(dists['rep_dists'][rep_name])[s_idxs_incong]
+        t, p = ttest_ind(rep_dists_cong, rep_dists_incong)
+        # results_each[rep_name] = {'t_statistic': t, 'p_value': p}
+        results_ex_corners[rep_name]= [t,p]
+    
+    results = {'excluding_each': results_each,
+               'excluding_bl_tr': results_ex_bl_tr,
+               'excluding_corners': results_ex_corners}                   
+    return results
+
 def rsa(reps, dists, args):
     h1_dists = np.expand_dims(np.array(dists['rsa']['h1_dists']), axis=1)
     h2_dists = np.expand_dims(np.array(dists['rsa']['h2_dists']), axis=1)
@@ -694,6 +772,7 @@ def get_analyses(args, final_step):
                          'regression': regression,
                          'regression_with_1D': regression_with_1D,
                          'regression_exclusion': regression_exclusion,
+                         'ttest_exclusion': ttest_exclusion,
                          'rsa': rsa,
                          'get_diag_vis_params': get_diag_vis_params,
                          'get_orth_vis_params': get_orth_vis_params}
